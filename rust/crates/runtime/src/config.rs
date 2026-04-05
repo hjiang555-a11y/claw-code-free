@@ -19,6 +19,7 @@ pub enum ConfigSource {
 pub enum ResolvedPermissionMode {
     ReadOnly,
     WorkspaceWrite,
+    Prompt,
     DangerFullAccess,
 }
 
@@ -511,6 +512,7 @@ fn parse_permission_mode_label(
     match mode {
         "default" | "plan" | "read-only" => Ok(ResolvedPermissionMode::ReadOnly),
         "acceptEdits" | "auto" | "workspace-write" => Ok(ResolvedPermissionMode::WorkspaceWrite),
+        "prompt" => Ok(ResolvedPermissionMode::Prompt),
         "dontAsk" | "danger-full-access" => Ok(ResolvedPermissionMode::DangerFullAccess),
         other => Err(ConfigError::Parse(format!(
             "{context}: unsupported permission mode {other}"
@@ -1054,5 +1056,11 @@ mod tests {
             .contains("mcpServers.broken: missing string field url"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn parses_prompt_permission_mode_labels() {
+        let parsed = parse_permission_mode_label("prompt", "test").expect("prompt should parse");
+        assert_eq!(parsed, ResolvedPermissionMode::Prompt);
     }
 }

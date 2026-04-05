@@ -32,8 +32,8 @@ class UsageSummary:
 
     def add_turn(self, prompt: str, output: str) -> 'UsageSummary':
         return UsageSummary(
-            input_tokens=self.input_tokens + len(prompt.split()),
-            output_tokens=self.output_tokens + len(output.split()),
+            input_tokens=self.input_tokens + len(prompt),
+            output_tokens=self.output_tokens + len(output),
         )
 
 

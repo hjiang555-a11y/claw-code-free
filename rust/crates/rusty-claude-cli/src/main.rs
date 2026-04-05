@@ -349,7 +349,7 @@ fn parse_permission_mode_arg(value: &str) -> Result<PermissionMode, String> {
     normalize_permission_mode(value)
         .ok_or_else(|| {
             format!(
-                "unsupported permission mode '{value}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{value}'. Use read-only, workspace-write, prompt, or danger-full-access."
             )
         })
         .map(permission_mode_from_label)
@@ -359,6 +359,7 @@ fn permission_mode_from_label(mode: &str) -> PermissionMode {
     match mode {
         "read-only" => PermissionMode::ReadOnly,
         "workspace-write" => PermissionMode::WorkspaceWrite,
+        "prompt" => PermissionMode::Prompt,
         "danger-full-access" => PermissionMode::DangerFullAccess,
         other => panic!("unsupported permission mode label: {other}"),
     }
@@ -369,7 +370,7 @@ fn default_permission_mode() -> PermissionMode {
         .ok()
         .as_deref()
         .and_then(normalize_permission_mode)
-        .map_or(PermissionMode::DangerFullAccess, permission_mode_from_label)
+        .map_or(PermissionMode::Prompt, permission_mode_from_label)
 }
 
 fn filter_tool_specs(allowed_tools: Option<&AllowedToolSet>) -> Vec<tools::ToolSpec> {
@@ -685,6 +686,11 @@ fn format_permissions_report(mode: &str) -> String {
             "workspace-write",
             "Edit files inside the workspace",
             mode == "workspace-write",
+        ),
+        (
+            "prompt",
+            "Ask before escalating restricted tool access",
+            mode == "prompt",
         ),
         (
             "danger-full-access",
@@ -1310,7 +1316,7 @@ impl LiveCli {
 
         let normalized = normalize_permission_mode(&mode).ok_or_else(|| {
             format!(
-                "unsupported permission mode '{mode}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{mode}'. Use read-only, workspace-write, prompt, or danger-full-access."
             )
         })?;
 
@@ -1978,6 +1984,7 @@ fn normalize_permission_mode(mode: &str) -> Option<&'static str> {
     match mode.trim() {
         "read-only" => Some("read-only"),
         "workspace-write" => Some("workspace-write"),
+        "prompt" => Some("prompt"),
         "danger-full-access" => Some("danger-full-access"),
         _ => None,
     }
@@ -3174,7 +3181,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  --permission-mode MODE     Set read-only, workspace-write, or danger-full-access"
+        "  --permission-mode MODE     Set read-only, workspace-write, prompt, or danger-full-access"
     )?;
     writeln!(
         out,
@@ -3244,7 +3251,7 @@ mod tests {
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3263,7 +3270,7 @@ mod tests {
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3284,7 +3291,7 @@ mod tests {
                 model: "claude-opus".to_string(),
                 output_format: CliOutputFormat::Json,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3304,7 +3311,7 @@ mod tests {
                 model: "claude-opus-4-6".to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3359,7 +3366,7 @@ mod tests {
                         .map(str::to_string)
                         .collect()
                 ),
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3471,7 +3478,7 @@ mod tests {
         assert!(help.contains("/help"));
         assert!(help.contains("/status"));
         assert!(help.contains("/model [model]"));
-        assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
+        assert!(help.contains("/permissions [read-only|workspace-write|prompt|danger-full-access]"));
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
@@ -3543,6 +3550,7 @@ mod tests {
         assert!(report.contains("Modes"));
         assert!(report.contains("read-only          ○ available Read/search tools only"));
         assert!(report.contains("workspace-write    ● current   Edit files inside the workspace"));
+        assert!(report.contains("prompt             ○ available Ask before escalating restricted tool access"));
         assert!(report.contains("danger-full-access ○ available Unrestricted tool access"));
     }
 
@@ -3680,6 +3688,7 @@ mod tests {
             normalize_permission_mode("danger-full-access"),
             Some("danger-full-access")
         );
+        assert_eq!(normalize_permission_mode("prompt"), Some("prompt"));
         assert_eq!(normalize_permission_mode("unknown"), None);
     }
 

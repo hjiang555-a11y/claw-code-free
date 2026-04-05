@@ -65,13 +65,14 @@ I've been deeply interested in **harness engineering** — studying how agent sy
 
 ## Porting Status
 
-The main source tree is now Python-first.
+The repository currently has two distinct implementation surfaces:
 
-- `src/` contains the active Python porting workspace
-- `tests/` verifies the current Python workspace
+- `rust/` contains the active CLI/runtime implementation
+- `src/` contains the Python mirrored metadata/stub workspace
+- `tests/` verifies the Python metadata workspace
 - the exposed snapshot is no longer part of the tracked repository state
 
-The current Python workspace is not yet a complete one-to-one replacement for the original system, but the primary implementation surface is now Python.
+The Python workspace is useful for parity auditing, inventory browsing, and porting analysis, but it is not a full runtime-equivalent replacement. Real tool execution, Anthropic API integration, permissions, hooks, sandboxing, and MCP runtime plumbing live under `rust/`.
 
 ## Why this rewrite exists
 
@@ -108,6 +109,8 @@ The new Python `src/` tree currently provides:
 - **`tools.py`** — Python-side tool port metadata
 - **`query_engine.py`** — renders a Python porting summary from the active workspace
 - **`main.py`** — a CLI entrypoint for manifest and summary output
+
+The Python command/tool execution shims are metadata-only stubs: they report mirrored archive entries for inspection, but they do not perform live tool or agent execution.
 
 ## Quickstart
 

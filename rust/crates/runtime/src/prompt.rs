@@ -190,26 +190,58 @@ pub fn prepend_bullets(items: Vec<String>) -> Vec<String> {
 }
 
 fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
-    let mut directories = Vec::new();
-    let mut cursor = Some(cwd);
-    while let Some(dir) = cursor {
-        directories.push(dir.to_path_buf());
-        cursor = dir.parent();
-    }
-    directories.reverse();
-
     let mut files = Vec::new();
-    for dir in directories {
-        for candidate in [
-            dir.join("CLAUDE.md"),
-            dir.join("CLAUDE.local.md"),
-            dir.join(".claude").join("CLAUDE.md"),
-            dir.join(".claude").join("instructions.md"),
-        ] {
+    for candidate in user_instruction_candidates() {
+        push_context_file(&mut files, candidate)?;
+    }
+    for dir in repository_instruction_directories(cwd) {
+        for candidate in instruction_candidates(&dir) {
             push_context_file(&mut files, candidate)?;
         }
     }
     Ok(dedupe_instruction_files(files))
+}
+
+fn repository_instruction_directories(cwd: &Path) -> Vec<PathBuf> {
+    let root = find_repository_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    let mut directories = Vec::new();
+    let mut cursor = Some(cwd);
+    while let Some(dir) = cursor {
+        directories.push(dir.to_path_buf());
+        if dir == root {
+            break;
+        }
+        cursor = dir.parent();
+    }
+    directories.reverse();
+    directories
+}
+
+fn find_repository_root(cwd: &Path) -> Option<PathBuf> {
+    cwd.ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
+fn user_instruction_candidates() -> Vec<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| {
+            vec![
+                home.join(".claude").join("CLAUDE.md"),
+                home.join(".claude").join("instructions.md"),
+            ]
+        })
+        .unwrap_or_default()
+}
+
+fn instruction_candidates(dir: &Path) -> [PathBuf; 4] {
+    [
+        dir.join("CLAUDE.md"),
+        dir.join("CLAUDE.local.md"),
+        dir.join(".claude").join("CLAUDE.md"),
+        dir.join(".claude").join("instructions.md"),
+    ]
 }
 
 fn push_context_file(files: &mut Vec<ContextFile>, path: PathBuf) -> std::io::Result<()> {
@@ -514,19 +546,33 @@ mod tests {
     }
 
     #[test]
-    fn discovers_instruction_files_from_ancestor_chain() {
+    fn discovers_instruction_files_from_repo_root_and_user_claude_dir() {
         let root = temp_dir();
-        let nested = root.join("apps").join("api");
+        let repo = root.join("repo");
+        let home = root.join("home");
+        let nested = repo.join("apps").join("api");
+        fs::create_dir_all(&repo).expect("repo dir");
         fs::create_dir_all(nested.join(".claude")).expect("nested claude dir");
-        fs::write(root.join("CLAUDE.md"), "root instructions").expect("write root instructions");
-        fs::write(root.join("CLAUDE.local.md"), "local instructions")
+        fs::create_dir_all(home.join(".claude")).expect("home claude dir");
+        fs::create_dir_all(root.join("outside")).expect("outside dir");
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&repo)
+            .status()
+            .expect("git init should run");
+        fs::write(root.join("outside").join("CLAUDE.md"), "outside instructions")
+            .expect("write outside instructions");
+        fs::write(home.join(".claude").join("CLAUDE.md"), "home instructions")
+            .expect("write home instructions");
+        fs::write(repo.join("CLAUDE.md"), "root instructions").expect("write root instructions");
+        fs::write(repo.join("CLAUDE.local.md"), "local instructions")
             .expect("write local instructions");
-        fs::create_dir_all(root.join("apps")).expect("apps dir");
-        fs::create_dir_all(root.join("apps").join(".claude")).expect("apps claude dir");
-        fs::write(root.join("apps").join("CLAUDE.md"), "apps instructions")
+        fs::create_dir_all(repo.join("apps")).expect("apps dir");
+        fs::create_dir_all(repo.join("apps").join(".claude")).expect("apps claude dir");
+        fs::write(repo.join("apps").join("CLAUDE.md"), "apps instructions")
             .expect("write apps instructions");
         fs::write(
-            root.join("apps").join(".claude").join("instructions.md"),
+            repo.join("apps").join(".claude").join("instructions.md"),
             "apps dot claude instructions",
         )
         .expect("write apps dot claude instructions");
@@ -538,7 +584,15 @@ mod tests {
         )
         .expect("write nested instructions");
 
+        let _guard = env_lock();
+        let original_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", &home);
         let context = ProjectContext::discover(&nested, "2026-03-31").expect("context should load");
+        if let Some(value) = original_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
         let contents = context
             .instruction_files
             .iter()
@@ -548,6 +602,7 @@ mod tests {
         assert_eq!(
             contents,
             vec![
+                "home instructions",
                 "root instructions",
                 "local instructions",
                 "apps instructions",
@@ -563,7 +618,13 @@ mod tests {
     fn dedupes_identical_instruction_content_across_scopes() {
         let root = temp_dir();
         let nested = root.join("apps").join("api");
+        fs::create_dir_all(&root).expect("root dir");
         fs::create_dir_all(&nested).expect("nested dir");
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&root)
+            .status()
+            .expect("git init should run");
         fs::write(root.join("CLAUDE.md"), "same rules\n\n").expect("write root");
         fs::write(nested.join("CLAUDE.md"), "same rules\n").expect("write nested");
 

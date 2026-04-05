@@ -68,8 +68,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                     "command": { "type": "string" },
                     "timeout": { "type": "integer", "minimum": 1 },
                     "description": { "type": "string" },
-                    "run_in_background": { "type": "boolean" },
-                    "dangerouslyDisableSandbox": { "type": "boolean" }
+                    "run_in_background": { "type": "boolean" }
                 },
                 "required": ["command"],
                 "additionalProperties": false
@@ -2532,7 +2531,7 @@ fn supported_config_setting(setting: &str) -> Option<ConfigSettingSpec> {
             scope: ConfigScope::Settings,
             kind: ConfigKind::String,
             path: &["permissions", "defaultMode"],
-            options: Some(&["default", "plan", "acceptEdits", "dontAsk", "auto"]),
+            options: Some(&["default", "plan", "acceptEdits", "prompt", "dontAsk", "auto"]),
         },
         "language" => ConfigSettingSpec {
             scope: ConfigScope::Settings,
@@ -2944,6 +2943,18 @@ mod tests {
         assert!(names.contains(&"StructuredOutput"));
         assert!(names.contains(&"REPL"));
         assert!(names.contains(&"PowerShell"));
+    }
+
+    #[test]
+    fn bash_tool_schema_does_not_advertise_sandbox_bypass() {
+        let bash = mvp_tool_specs()
+            .into_iter()
+            .find(|spec| spec.name == "bash")
+            .expect("bash tool spec should exist");
+        let properties = bash.input_schema["properties"]
+            .as_object()
+            .expect("bash properties should be an object");
+        assert!(!properties.contains_key("dangerouslyDisableSandbox"));
     }
 
     #[test]
