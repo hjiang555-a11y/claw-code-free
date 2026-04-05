@@ -364,7 +364,7 @@ fn write_credentials_root(path: &PathBuf, root: &Map<String, Value>) -> io::Resu
     let temp_path = path.with_extension("json.tmp");
     fs::write(&temp_path, format!("{rendered}\n"))?;
     set_private_permissions(&temp_path, 0o600)?;
-    fs::rename(temp_path, path).and_then(|_| set_private_permissions(path, 0o600))
+    fs::rename(temp_path, path).and_then(|()| set_private_permissions(path, 0o600))
 }
 
 #[cfg(unix)]

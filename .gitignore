@@ -2,6 +2,9 @@ __pycache__/
 archive/
 .omx/
 .clawd-agents/
+.port_sessions/
+rust/crates/runtime/.tmp-file-ops-tests/
+rust/crates/tools/.tmp-tools-tests/
 # Claude Code local artifacts
 .claude/settings.local.json
 .claude/sessions/

@@ -481,13 +481,12 @@ fn sanitize_untrusted_workspace_config(
 fn trust_project_extensions() -> bool {
     std::env::var("CLAWD_TRUST_PROJECT_EXTENSIONS")
         .ok()
-        .map(|value| {
+        .is_some_and(|value| {
             matches!(
                 value.trim().to_ascii_lowercase().as_str(),
                 "1" | "true" | "yes"
             )
         })
-        .unwrap_or(false)
 }
 
 fn parse_optional_model(root: &JsonValue) -> Option<String> {

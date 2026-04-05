@@ -502,6 +502,7 @@ fn enforce_workspace_boundary(path: PathBuf) -> io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::ErrorKind;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{edit_file, glob_search, grep_search, read_file, write_file, GrepSearchInput};
@@ -579,6 +580,6 @@ mod tests {
         let outside = std::env::temp_dir().join("clawd-outside-workspace.txt");
         let error = write_file(outside.to_string_lossy().as_ref(), "secret")
             .expect_err("outside path should be rejected");
-        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(error.kind(), ErrorKind::PermissionDenied);
     }
 }
