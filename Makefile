@@ -104,7 +104,7 @@ verify: lint test ## Run the full CI gate: lint + all tests
 # ── Run ───────────────────────────────────────────────────────────────────────
 
 .PHONY: run
-run: ## Run the interactive CLI  (requires ANTHROPIC_API_KEY or prior `make login`)
+run: ## Run the interactive CLI (requires ANTHROPIC_API_KEY or prior `make login`)
 	@echo "$(BOLD)Starting Claw Code CLI…$(RESET)"
 	@echo "  Tip: run 'make build' first if the binary is stale."
 	$(BINARY)

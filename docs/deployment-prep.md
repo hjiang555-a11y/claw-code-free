@@ -378,7 +378,7 @@ make test
 
 # 6. Interactive session (requires API key or prior OAuth login)
 export ANTHROPIC_API_KEY=your-key-here
-./rust/target/release/claw prompt "Summarise this repository"
+./rust/target/release/claw prompt "Summarize this repository"
 ```
 
 > **Headless note:** `claw login` opens a browser for OAuth. On a headless server,
