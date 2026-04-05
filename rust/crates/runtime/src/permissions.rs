@@ -94,7 +94,7 @@ impl PermissionPolicy {
     ) -> PermissionOutcome {
         let current_mode = self.active_mode();
         let required_mode = self.required_mode_for(tool_name);
-        if current_mode == PermissionMode::Allow || current_mode >= required_mode {
+        if tool_allowed_without_prompt(current_mode, required_mode) {
             return PermissionOutcome::Allow;
         }
 
@@ -131,6 +131,23 @@ impl PermissionPolicy {
                 current_mode.as_str()
             ),
         }
+    }
+}
+
+fn tool_allowed_without_prompt(
+    current_mode: PermissionMode,
+    required_mode: PermissionMode,
+) -> bool {
+    match current_mode {
+        PermissionMode::Allow | PermissionMode::DangerFullAccess => true,
+        PermissionMode::WorkspaceWrite => {
+            matches!(
+                required_mode,
+                PermissionMode::ReadOnly | PermissionMode::WorkspaceWrite
+            )
+        }
+        PermissionMode::ReadOnly => required_mode == PermissionMode::ReadOnly,
+        PermissionMode::Prompt => false,
     }
 }
 
@@ -228,5 +245,21 @@ mod tests {
             policy.authorize("bash", "echo hi", Some(&mut prompter)),
             PermissionOutcome::Deny { reason } if reason == "not now"
         ));
+    }
+
+    #[test]
+    fn prompt_mode_never_auto_allows() {
+        let policy = PermissionPolicy::new(PermissionMode::Prompt)
+            .with_tool_requirement("read_file", PermissionMode::ReadOnly);
+        let mut prompter = RecordingPrompter {
+            seen: Vec::new(),
+            allow: true,
+        };
+
+        let outcome = policy.authorize("read_file", "{}", Some(&mut prompter));
+
+        assert_eq!(outcome, PermissionOutcome::Allow);
+        assert_eq!(prompter.seen.len(), 1);
+        assert_eq!(prompter.seen[0].required_mode, PermissionMode::ReadOnly);
     }
 }

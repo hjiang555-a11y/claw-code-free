@@ -349,7 +349,7 @@ fn parse_permission_mode_arg(value: &str) -> Result<PermissionMode, String> {
     normalize_permission_mode(value)
         .ok_or_else(|| {
             format!(
-                "unsupported permission mode '{value}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{value}'. Use read-only, workspace-write, prompt, or danger-full-access."
             )
         })
         .map(permission_mode_from_label)
@@ -359,6 +359,7 @@ fn permission_mode_from_label(mode: &str) -> PermissionMode {
     match mode {
         "read-only" => PermissionMode::ReadOnly,
         "workspace-write" => PermissionMode::WorkspaceWrite,
+        "prompt" => PermissionMode::Prompt,
         "danger-full-access" => PermissionMode::DangerFullAccess,
         other => panic!("unsupported permission mode label: {other}"),
     }
@@ -369,7 +370,7 @@ fn default_permission_mode() -> PermissionMode {
         .ok()
         .as_deref()
         .and_then(normalize_permission_mode)
-        .map_or(PermissionMode::DangerFullAccess, permission_mode_from_label)
+        .map_or(PermissionMode::Prompt, permission_mode_from_label)
 }
 
 fn filter_tool_specs(allowed_tools: Option<&AllowedToolSet>) -> Vec<tools::ToolSpec> {
@@ -686,6 +687,7 @@ fn format_permissions_report(mode: &str) -> String {
             "Edit files inside the workspace",
             mode == "workspace-write",
         ),
+        ("prompt", "Ask before every tool call", mode == "prompt"),
         (
             "danger-full-access",
             "Unrestricted tool access",
@@ -1310,7 +1312,7 @@ impl LiveCli {
 
         let normalized = normalize_permission_mode(&mode).ok_or_else(|| {
             format!(
-                "unsupported permission mode '{mode}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{mode}'. Use read-only, workspace-write, prompt, or danger-full-access."
             )
         })?;
 
@@ -1657,6 +1659,11 @@ fn sessions_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
     let path = cwd.join(".claude").join("sessions");
     fs::create_dir_all(&path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    }
     Ok(path)
 }
 
@@ -1978,6 +1985,7 @@ fn normalize_permission_mode(mode: &str) -> Option<&'static str> {
     match mode.trim() {
         "read-only" => Some("read-only"),
         "workspace-write" => Some("workspace-write"),
+        "prompt" => Some("prompt"),
         "danger-full-access" => Some("danger-full-access"),
         _ => None,
     }
@@ -2331,7 +2339,7 @@ fn build_runtime(
         CliToolExecutor::new(allowed_tools, emit_output),
         permission_policy(permission_mode),
         system_prompt,
-        build_runtime_feature_config()?,
+        &build_runtime_feature_config()?,
     ))
 }
 

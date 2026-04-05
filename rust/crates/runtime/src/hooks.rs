@@ -118,7 +118,7 @@ impl HookRunner {
         let mut messages = Vec::new();
 
         for command in commands {
-            match self.run_command(
+            match Self::run_command(
                 command,
                 event,
                 tool_name,
@@ -149,8 +149,8 @@ impl HookRunner {
         HookRunResult::allow(messages)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_command(
-        &self,
         command: &str,
         event: HookEvent,
         tool_name: &str,

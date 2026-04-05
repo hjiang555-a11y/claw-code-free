@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -932,6 +933,7 @@ fn build_http_client() -> Result<Client, String> {
 
 fn normalize_fetch_url(url: &str) -> Result<String, String> {
     let parsed = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
+    reject_private_host(&parsed)?;
     if parsed.scheme() == "http" {
         let host = parsed.host_str().unwrap_or_default();
         if host != "localhost" && host != "127.0.0.1" && host != "::1" {
@@ -943,6 +945,35 @@ fn normalize_fetch_url(url: &str) -> Result<String, String> {
         }
     }
     Ok(parsed.to_string())
+}
+
+fn reject_private_host(url: &reqwest::Url) -> Result<(), String> {
+    let Some(host) = url.host_str() else {
+        return Ok(());
+    };
+    let host = host.to_ascii_lowercase();
+    if matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1")
+        || host.starts_with("10.")
+        || host.starts_with("127.")
+        || host.starts_with("192.168.")
+        || host.starts_with("169.254.")
+    {
+        return Err(format!(
+            "refusing to fetch private or loopback host: {host}"
+        ));
+    }
+    if let Some(rest) = host.strip_prefix("172.") {
+        if let Some(second_octet) = rest
+            .split('.')
+            .next()
+            .and_then(|value| value.parse::<u8>().ok())
+        {
+            if (16..=31).contains(&second_octet) {
+                return Err(format!("refusing to fetch private host: {host}"));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn build_search_url(query: &str) -> Result<reqwest::Url, String> {
@@ -1308,7 +1339,9 @@ fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
     if let Ok(codex_home) = std::env::var("CODEX_HOME") {
         candidates.push(std::path::PathBuf::from(codex_home).join("skills"));
     }
-    candidates.push(std::path::PathBuf::from("/home/bellman/.codex/skills"));
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(std::path::PathBuf::from(home).join(".codex").join("skills"));
+    }
 
     for root in candidates {
         let direct = root.join(requested).join("SKILL.md");
@@ -1583,7 +1616,7 @@ fn allowed_tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
 
 fn agent_permission_policy() -> PermissionPolicy {
     mvp_tool_specs().into_iter().fold(
-        PermissionPolicy::new(PermissionMode::DangerFullAccess),
+        PermissionPolicy::new(PermissionMode::WorkspaceWrite),
         |policy, spec| policy.with_tool_requirement(spec.name, spec.required_permission),
     )
 }
@@ -2103,7 +2136,7 @@ fn iso8601_now() -> String {
 
 #[allow(clippy::too_many_lines)]
 fn execute_notebook_edit(input: NotebookEditInput) -> Result<NotebookEditOutput, String> {
-    let path = std::path::PathBuf::from(&input.notebook_path);
+    let path = resolve_workspace_path(&input.notebook_path).map_err(|error| error.to_string())?;
     if path.extension().and_then(|ext| ext.to_str()) != Some("ipynb") {
         return Err(String::from(
             "File must be a Jupyter notebook (.ipynb file).",
@@ -2300,7 +2333,7 @@ fn execute_brief(input: BriefInput) -> Result<BriefOutput, String> {
 }
 
 fn resolve_attachment(path: &str) -> Result<ResolvedAttachment, String> {
-    let resolved = std::fs::canonicalize(path).map_err(|error| error.to_string())?;
+    let resolved = resolve_workspace_path(path).map_err(|error| error.to_string())?;
     let metadata = std::fs::metadata(&resolved).map_err(|error| error.to_string())?;
     Ok(ResolvedAttachment {
         path: resolved.display().to_string(),
@@ -2377,14 +2410,16 @@ fn execute_repl(input: ReplInput) -> Result<ReplOutput, String> {
     if input.code.trim().is_empty() {
         return Err(String::from("code must not be empty"));
     }
-    let _ = input.timeout_ms;
     let runtime = resolve_repl_runtime(&input.language)?;
     let started = Instant::now();
-    let output = Command::new(runtime.program)
+    let mut child = Command::new(runtime.program)
         .args(runtime.args)
         .arg(&input.code)
-        .output()
+        .spawn()
         .map_err(|error| error.to_string())?;
+    let timeout_ms = input.timeout_ms.unwrap_or(5_000);
+    let output =
+        wait_for_child_output(&mut child, timeout_ms).map_err(|error| error.to_string())?;
 
     Ok(ReplOutput {
         language: input.language,
@@ -2398,6 +2433,60 @@ fn execute_repl(input: ReplInput) -> Result<ReplOutput, String> {
 struct ReplRuntime {
     program: &'static str,
     args: &'static [&'static str],
+}
+
+fn wait_for_child_output(
+    child: &mut std::process::Child,
+    timeout_ms: u64,
+) -> io::Result<std::process::Output> {
+    let started = Instant::now();
+    loop {
+        if let Some(_status) = child.try_wait()? {
+            return child.wait_with_output();
+        }
+        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            child.kill()?;
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("Command exceeded timeout of {timeout_ms} ms"),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn resolve_workspace_path(path: &str) -> io::Result<PathBuf> {
+    let candidate = if Path::new(path).is_absolute() {
+        PathBuf::from(path)
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let resolved = candidate.canonicalize()?;
+    let workspace_root = std::env::current_dir()?.canonicalize()?;
+    if resolved.starts_with(&workspace_root) {
+        Ok(resolved)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "path {} is outside the workspace root {}",
+                resolved.display(),
+                workspace_root.display()
+            ),
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn set_private_permissions(path: &Path, mode: u32) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn set_private_permissions(_path: &Path, _mode: u32) -> io::Result<()> {
+    Ok(())
 }
 
 fn resolve_repl_runtime(language: &str) -> Result<ReplRuntime, String> {
@@ -2619,12 +2708,14 @@ fn read_json_object(path: &Path) -> Result<serde_json::Map<String, Value>, Strin
 fn write_json_object(path: &Path, value: &serde_json::Map<String, Value>) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        set_private_permissions(parent, 0o700).map_err(|error| error.to_string())?;
     }
     std::fs::write(
         path,
         serde_json::to_string_pretty(value).map_err(|error| error.to_string())?,
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    set_private_permissions(path, 0o600).map_err(|error| error.to_string())
 }
 
 fn get_nested_value<'a>(
