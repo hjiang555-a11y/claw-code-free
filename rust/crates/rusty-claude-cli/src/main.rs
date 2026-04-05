@@ -690,6 +690,11 @@ fn format_permissions_report(mode: &str) -> String {
         ),
         ("prompt", "Ask before every tool call", mode == "prompt"),
         (
+            "prompt",
+            "Ask before escalating restricted tool access",
+            mode == "prompt",
+        ),
+        (
             "danger-full-access",
             "Unrestricted tool access",
             mode == "danger-full-access",
@@ -1174,7 +1179,7 @@ impl LiveCli {
                 false
             }
             SlashCommand::Teleport { target } => {
-                self.run_teleport(target.as_deref())?;
+                Self::run_teleport(target.as_deref())?;
                 false
             }
             SlashCommand::DebugToolCall => {
@@ -1539,8 +1544,7 @@ impl LiveCli {
         Ok(())
     }
 
-    #[allow(clippy::unused_self)]
-    fn run_teleport(&self, target: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    fn run_teleport(target: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
         let Some(target) = target.map(str::trim).filter(|value| !value.is_empty()) else {
             println!("Usage: /teleport <symbol-or-path>");
             return Ok(());
@@ -2335,13 +2339,14 @@ fn build_runtime(
     permission_mode: PermissionMode,
 ) -> Result<ConversationRuntime<AnthropicRuntimeClient, CliToolExecutor>, Box<dyn std::error::Error>>
 {
+    let feature_config = build_runtime_feature_config()?;
     Ok(ConversationRuntime::new_with_features(
         session,
         AnthropicRuntimeClient::new(model, enable_tools, emit_output, allowed_tools.clone())?,
         CliToolExecutor::new(allowed_tools, emit_output),
         permission_policy(permission_mode),
         system_prompt,
-        &build_runtime_feature_config()?,
+        &feature_config,
     ))
 }
 
@@ -3183,7 +3188,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  --permission-mode MODE     Set read-only, workspace-write, or danger-full-access"
+        "  --permission-mode MODE     Set read-only, workspace-write, prompt, or danger-full-access"
     )?;
     writeln!(
         out,
@@ -3480,7 +3485,7 @@ mod tests {
         assert!(help.contains("/help"));
         assert!(help.contains("/status"));
         assert!(help.contains("/model [model]"));
-        assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
+        assert!(help.contains("/permissions [read-only|workspace-write|prompt|danger-full-access]"));
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
@@ -3552,6 +3557,9 @@ mod tests {
         assert!(report.contains("Modes"));
         assert!(report.contains("read-only          ○ available Read/search tools only"));
         assert!(report.contains("workspace-write    ● current   Edit files inside the workspace"));
+        assert!(report.contains(
+            "prompt             ○ available Ask before escalating restricted tool access"
+        ));
         assert!(report.contains("danger-full-access ○ available Unrestricted tool access"));
     }
 
@@ -3689,6 +3697,7 @@ mod tests {
             normalize_permission_mode("danger-full-access"),
             Some("danger-full-access")
         );
+        assert_eq!(normalize_permission_mode("prompt"), Some("prompt"));
         assert_eq!(normalize_permission_mode("unknown"), None);
     }
 

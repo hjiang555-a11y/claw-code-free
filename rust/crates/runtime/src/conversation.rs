@@ -11,6 +11,7 @@ use crate::session::{ContentBlock, ConversationMessage, Session};
 use crate::usage::{TokenUsage, UsageTracker};
 
 const DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD: u32 = 200_000;
+const DEFAULT_MAX_ITERATIONS: usize = 64;
 const AUTO_COMPACTION_THRESHOLD_ENV_VAR: &str = "CLAUDE_CODE_AUTO_COMPACT_INPUT_TOKENS";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,13 +123,14 @@ where
         permission_policy: PermissionPolicy,
         system_prompt: Vec<String>,
     ) -> Self {
+        let feature_config = RuntimeFeatureConfig::default();
         Self::new_with_features(
             session,
             api_client,
             tool_executor,
             permission_policy,
             system_prompt,
-            &RuntimeFeatureConfig::default(),
+            &feature_config,
         )
     }
 
@@ -148,7 +150,7 @@ where
             tool_executor,
             permission_policy,
             system_prompt,
-            max_iterations: usize::MAX,
+            max_iterations: DEFAULT_MAX_ITERATIONS,
             usage_tracker,
             hook_runner: HookRunner::from_feature_config(feature_config),
             auto_compaction_input_tokens_threshold: auto_compaction_threshold_from_env(),
@@ -968,5 +970,41 @@ mod tests {
             parse_auto_compaction_threshold(Some("not-a-number")),
             DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD
         );
+    }
+
+    #[test]
+    fn caps_default_conversation_iterations() {
+        struct LoopingApiClient;
+
+        impl ApiClient for LoopingApiClient {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: "tool-1".to_string(),
+                        name: "noop".to_string(),
+                        input: "{}".to_string(),
+                    },
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            LoopingApiClient,
+            StaticToolExecutor::new().register("noop", |_input| Ok("ok".to_string())),
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        );
+
+        let error = runtime
+            .run_turn("loop forever", None)
+            .expect_err("default max iterations should stop unbounded loops");
+        assert!(error
+            .to_string()
+            .contains("conversation loop exceeded the maximum number of iterations"));
     }
 }

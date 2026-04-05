@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from src.commands import PORTED_COMMANDS
+from src.models import UsageSummary
 from src.parity_audit import run_parity_audit
 from src.port_manifest import build_port_manifest
 from src.query_engine import QueryEnginePort
@@ -133,8 +134,8 @@ class PortingWorkspaceTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertIn("Mirrored command 'review'", command_result.stdout)
-        self.assertIn("Mirrored tool 'MCPTool'", tool_result.stdout)
+        self.assertIn("Stub only: mirrored command metadata 'review'", command_result.stdout)
+        self.assertIn("Stub only: mirrored tool metadata 'MCPTool'", tool_result.stdout)
 
     def test_setup_report_and_registry_filters_run(self) -> None:
         setup_result = subprocess.run(
@@ -232,8 +233,13 @@ class PortingWorkspaceTests(unittest.TestCase):
         registry = build_execution_registry()
         self.assertGreaterEqual(len(registry.commands), 150)
         self.assertGreaterEqual(len(registry.tools), 100)
-        self.assertIn('Mirrored command', registry.command('review').execute('review security'))
-        self.assertIn('Mirrored tool', registry.tool('MCPTool').execute('fetch mcp resources'))
+        self.assertIn('Stub only: mirrored command metadata', registry.command('review').execute('review security'))
+        self.assertIn('Stub only: mirrored tool metadata', registry.tool('MCPTool').execute('fetch mcp resources'))
+
+    def test_usage_summary_counts_character_length(self) -> None:
+        usage = UsageSummary().add_turn('ab cd', 'xyz')
+        self.assertEqual(usage.input_tokens, 5)
+        self.assertEqual(usage.output_tokens, 3)
 
     def test_bootstrap_graph_and_direct_modes_run(self) -> None:
         graph_result = subprocess.run([sys.executable, '-m', 'src.main', 'bootstrap-graph'], check=True, capture_output=True, text=True)

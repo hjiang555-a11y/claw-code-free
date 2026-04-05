@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Detected stack
-- Languages: Rust.
+- Languages: Rust, Python.
 - Frameworks: none detected from the supported starter markers.
 
 ## Verification
@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository shape
 - `rust/` contains the Rust workspace and active CLI/runtime implementation.
-- `src/` contains source files that should stay consistent with generated guidance and tests.
+- `src/` contains the Python mirrored metadata/stub workspace and supporting analysis utilities.
 - `tests/` contains validation surfaces that should be reviewed alongside code changes.
 
 ## Working agreement

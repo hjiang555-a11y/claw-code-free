@@ -18,7 +18,6 @@ It is **not feature-parity** with the TypeScript CLI.
 
 Largest gaps:
 - **plugins** are effectively absent in Rust
-- **hooks** are parsed but not executed in Rust
 - **CLI breadth** is much narrower in Rust
 - **skills** are local-file only in Rust, without the TS registry/bundled pipeline
 - **assistant orchestration** lacks TS hook-aware orchestration and remote/structured transports
@@ -61,13 +60,14 @@ Evidence:
 - Hook config is parsed and merged in `rust/crates/runtime/src/config.rs`.
 - Hook config can be inspected via Rust config reporting in `rust/crates/commands/src/lib.rs` and `rust/crates/rusty-claude-cli/src/main.rs`.
 - Prompt guidance mentions hooks in `rust/crates/runtime/src/prompt.rs`.
+- Hook execution lives in `rust/crates/runtime/src/hooks.rs`.
+- The conversation loop runs pre/post tool hooks in `rust/crates/runtime/src/conversation.rs`.
 
 ### Missing or broken in Rust
-- No actual hook execution pipeline in `rust/crates/runtime/src/conversation.rs`.
-- No PreToolUse/PostToolUse mutation/deny/rewrite/result-hook behavior.
+- No PreToolUse/PostToolUse mutation/rewrite support beyond allow/deny plus appended messages.
 - No Rust `/hooks` parity command.
 
-**Status:** config-only; runtime behavior missing.
+**Status:** partial runtime support; command/UI parity still missing.
 
 ---
 

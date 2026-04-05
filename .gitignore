@@ -8,3 +8,4 @@ rust/crates/tools/.tmp-tools-tests/
 # Claude Code local artifacts
 .claude/settings.local.json
 .claude/sessions/
+.port_sessions/
