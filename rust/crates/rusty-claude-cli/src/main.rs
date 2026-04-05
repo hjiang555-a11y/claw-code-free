@@ -688,7 +688,6 @@ fn format_permissions_report(mode: &str) -> String {
             "Edit files inside the workspace",
             mode == "workspace-write",
         ),
-        ("prompt", "Ask before every tool call", mode == "prompt"),
         (
             "prompt",
             "Ask before escalating restricted tool access",

@@ -224,15 +224,13 @@ fn find_repository_root(cwd: &Path) -> Option<PathBuf> {
 }
 
 fn user_instruction_candidates() -> Vec<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .map(|home| {
-            vec![
-                home.join(".claude").join("CLAUDE.md"),
-                home.join(".claude").join("instructions.md"),
-            ]
-        })
-        .unwrap_or_default()
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Vec::new();
+    };
+    vec![
+        home.join(".claude").join("CLAUDE.md"),
+        home.join(".claude").join("instructions.md"),
+    ]
 }
 
 fn instruction_candidates(dir: &Path) -> [PathBuf; 4] {

@@ -89,14 +89,6 @@ jobs:
       - name: Verify binary runs and shows help
         run: ./target/release/rusty-claude-cli --help
 
-      - name: Verify default permission mode is prompt
-        run: |
-          output=$(./target/release/rusty-claude-cli --help 2>&1 || true)
-          echo "$output"
-          if echo "$output" | grep -q "permission.mode"; then
-            echo "Permission mode flag present in help output"
-          fi
-
       - name: Smoke-test config init
         run: |
           tmp=$(mktemp -d)
