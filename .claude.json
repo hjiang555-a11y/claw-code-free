@@ -1,5 +1,8 @@
 {
   "permissions": {
-    "defaultMode": "dontAsk"
+    "defaultMode": "workspace-write"
+  },
+  "security": {
+    "note": "Project-level hooks and MCP servers are disabled by default; set CLAWD_TRUST_PROJECT_EXTENSIONS=1 to opt in."
   }
 }

@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 const STARTER_CLAUDE_JSON: &str = concat!(
     "{\n",
     "  \"permissions\": {\n",
-    "    \"defaultMode\": \"dontAsk\"\n",
+    "    \"defaultMode\": \"workspace-write\"\n",
+    "  },\n",
+    "  \"security\": {\n",
+    "    \"note\": \"Project-level hooks and MCP servers are disabled by default; set CLAWD_TRUST_PROJECT_EXTENSIONS=1 to opt in.\"\n",
     "  }\n",
     "}\n",
 );
@@ -362,15 +365,18 @@ mod tests {
         assert!(root.join(".claude.json").is_file());
         assert!(root.join("CLAUDE.md").is_file());
         assert_eq!(
-            fs::read_to_string(root.join(".claude.json")).expect("read claude json"),
-            concat!(
-                "{\n",
-                "  \"permissions\": {\n",
-                "    \"defaultMode\": \"dontAsk\"\n",
-                "  }\n",
-                "}\n",
-            )
-        );
+             fs::read_to_string(root.join(".claude.json")).expect("read claude json"),
+             concat!(
+                 "{\n",
+                 "  \"permissions\": {\n",
+                 "    \"defaultMode\": \"workspace-write\"\n",
+                 "  },\n",
+                 "  \"security\": {\n",
+                 "    \"note\": \"Project-level hooks and MCP servers are disabled by default; set CLAWD_TRUST_PROJECT_EXTENSIONS=1 to opt in.\"\n",
+                 "  }\n",
+                 "}\n",
+             )
+         );
         let gitignore = fs::read_to_string(root.join(".gitignore")).expect("read gitignore");
         assert!(gitignore.contains(".claude/settings.local.json"));
         assert!(gitignore.contains(".claude/sessions/"));

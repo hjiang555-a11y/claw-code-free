@@ -221,7 +221,10 @@ impl ConfigLoader {
                 continue;
             };
             merge_mcp_servers(&mut mcp_servers, entry.source, &value, &entry.path)?;
-            deep_merge_objects(&mut merged, &value);
+            deep_merge_objects(
+                &mut merged,
+                &sanitize_untrusted_workspace_config(entry.source, value),
+            );
             loaded_entries.push(entry);
         }
 
@@ -419,7 +422,7 @@ fn read_optional_json_object(
 
     let parsed = match JsonValue::parse(&contents) {
         Ok(parsed) => parsed,
-        Err(error) if is_legacy_config => return Ok(None),
+        Err(_error) if is_legacy_config => return Ok(None),
         Err(error) => return Err(ConfigError::Parse(format!("{}: {error}", path.display()))),
     };
     let Some(object) = parsed.as_object() else {
@@ -440,6 +443,9 @@ fn merge_mcp_servers(
     root: &BTreeMap<String, JsonValue>,
     path: &Path,
 ) -> Result<(), ConfigError> {
+    if source == ConfigSource::Project && !trust_project_extensions() {
+        return Ok(());
+    }
     let Some(mcp_servers) = root.get("mcpServers") else {
         return Ok(());
     };
@@ -459,6 +465,28 @@ fn merge_mcp_servers(
         );
     }
     Ok(())
+}
+
+fn sanitize_untrusted_workspace_config(
+    source: ConfigSource,
+    mut root: BTreeMap<String, JsonValue>,
+) -> BTreeMap<String, JsonValue> {
+    if source == ConfigSource::Project && !trust_project_extensions() {
+        root.remove("hooks");
+        root.remove("mcpServers");
+    }
+    root
+}
+
+fn trust_project_extensions() -> bool {
+    std::env::var("CLAWD_TRUST_PROJECT_EXTENSIONS")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
 }
 
 fn parse_optional_model(root: &JsonValue) -> Option<String> {
@@ -891,15 +919,10 @@ mod tests {
             .and_then(JsonValue::as_object)
             .expect("hooks object")
             .contains_key("PreToolUse"));
-        assert!(loaded
-            .get("hooks")
-            .and_then(JsonValue::as_object)
-            .expect("hooks object")
-            .contains_key("PostToolUse"));
         assert_eq!(loaded.hooks().pre_tool_use(), &["base".to_string()]);
-        assert_eq!(loaded.hooks().post_tool_use(), &["project".to_string()]);
+        assert!(loaded.hooks().post_tool_use().is_empty());
         assert!(loaded.mcp().get("home").is_some());
-        assert!(loaded.mcp().get("project").is_some());
+        assert!(loaded.mcp().get("project").is_none());
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
@@ -1053,6 +1076,34 @@ mod tests {
             .to_string()
             .contains("mcpServers.broken: missing string field url"));
 
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn can_opt_in_to_project_hooks_and_mcp_extensions() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claude");
+        fs::create_dir_all(cwd.join(".claude")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::write(
+            cwd.join(".claude").join("settings.json"),
+            r#"{"hooks":{"PostToolUse":["project-hook"]},"mcpServers":{"project":{"command":"uvx","args":["project"]}}}"#,
+        )
+        .expect("write project settings");
+        std::env::set_var("CLAWD_TRUST_PROJECT_EXTENSIONS", "1");
+
+        let loaded = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("config should load");
+
+        assert_eq!(
+            loaded.hooks().post_tool_use(),
+            &["project-hook".to_string()]
+        );
+        assert!(loaded.mcp().get("project").is_some());
+
+        std::env::remove_var("CLAWD_TRUST_PROJECT_EXTENSIONS");
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 }

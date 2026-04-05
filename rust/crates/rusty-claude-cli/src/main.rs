@@ -4,6 +4,7 @@ mod render;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::TcpListener;
@@ -349,7 +350,7 @@ fn parse_permission_mode_arg(value: &str) -> Result<PermissionMode, String> {
     normalize_permission_mode(value)
         .ok_or_else(|| {
             format!(
-                "unsupported permission mode '{value}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{value}'. Use read-only, workspace-write, prompt, or danger-full-access."
             )
         })
         .map(permission_mode_from_label)
@@ -359,6 +360,7 @@ fn permission_mode_from_label(mode: &str) -> PermissionMode {
     match mode {
         "read-only" => PermissionMode::ReadOnly,
         "workspace-write" => PermissionMode::WorkspaceWrite,
+        "prompt" => PermissionMode::Prompt,
         "danger-full-access" => PermissionMode::DangerFullAccess,
         other => panic!("unsupported permission mode label: {other}"),
     }
@@ -369,7 +371,7 @@ fn default_permission_mode() -> PermissionMode {
         .ok()
         .as_deref()
         .and_then(normalize_permission_mode)
-        .map_or(PermissionMode::DangerFullAccess, permission_mode_from_label)
+        .map_or(PermissionMode::Prompt, permission_mode_from_label)
 }
 
 fn filter_tool_specs(allowed_tools: Option<&AllowedToolSet>) -> Vec<tools::ToolSpec> {
@@ -686,6 +688,7 @@ fn format_permissions_report(mode: &str) -> String {
             "Edit files inside the workspace",
             mode == "workspace-write",
         ),
+        ("prompt", "Ask before every tool call", mode == "prompt"),
         (
             "danger-full-access",
             "Unrestricted tool access",
@@ -1310,7 +1313,7 @@ impl LiveCli {
 
         let normalized = normalize_permission_mode(&mode).ok_or_else(|| {
             format!(
-                "unsupported permission mode '{mode}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{mode}'. Use read-only, workspace-write, prompt, or danger-full-access."
             )
         })?;
 
@@ -1536,6 +1539,7 @@ impl LiveCli {
         Ok(())
     }
 
+    #[allow(clippy::unused_self)]
     fn run_teleport(&self, target: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
         let Some(target) = target.map(str::trim).filter(|value| !value.is_empty()) else {
             println!("Usage: /teleport <symbol-or-path>");
@@ -1657,6 +1661,11 @@ fn sessions_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
     let path = cwd.join(".claude").join("sessions");
     fs::create_dir_all(&path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    }
     Ok(path)
 }
 
@@ -1978,6 +1987,7 @@ fn normalize_permission_mode(mode: &str) -> Option<&'static str> {
     match mode.trim() {
         "read-only" => Some("read-only"),
         "workspace-write" => Some("workspace-write"),
+        "prompt" => Some("prompt"),
         "danger-full-access" => Some("danger-full-access"),
         _ => None,
     }
@@ -2331,7 +2341,7 @@ fn build_runtime(
         CliToolExecutor::new(allowed_tools, emit_output),
         permission_policy(permission_mode),
         system_prompt,
-        build_runtime_feature_config()?,
+        &build_runtime_feature_config()?,
     ))
 }
 
@@ -2767,13 +2777,13 @@ fn format_bash_result(icon: &str, parsed: &serde_json::Value) -> String {
         .get("backgroundTaskId")
         .and_then(|value| value.as_str())
     {
-        lines[0].push_str(&format!(" backgrounded ({task_id})"));
+        let _ = write!(lines[0], " backgrounded ({task_id})");
     } else if let Some(status) = parsed
         .get("returnCodeInterpretation")
         .and_then(|value| value.as_str())
         .filter(|status| !status.is_empty())
     {
-        lines[0].push_str(&format!(" {status}"));
+        let _ = write!(lines[0], " {status}");
     }
 
     if let Some(stdout) = parsed.get("stdout").and_then(|value| value.as_str()) {
@@ -2795,15 +2805,15 @@ fn format_read_result(icon: &str, parsed: &serde_json::Value) -> String {
     let path = extract_tool_path(file);
     let start_line = file
         .get("startLine")
-        .and_then(|value| value.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(1);
     let num_lines = file
         .get("numLines")
-        .and_then(|value| value.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
     let total_lines = file
         .get("totalLines")
-        .and_then(|value| value.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(num_lines);
     let content = file
         .get("content")
@@ -2829,8 +2839,7 @@ fn format_write_result(icon: &str, parsed: &serde_json::Value) -> String {
     let line_count = parsed
         .get("content")
         .and_then(|value| value.as_str())
-        .map(|content| content.lines().count())
-        .unwrap_or(0);
+        .map_or(0, |content| content.lines().count());
     format!(
         "{icon} \x1b[1;32m✏️ {} {path}\x1b[0m \x1b[2m({line_count} lines)\x1b[0m",
         if kind == "create" { "Wrote" } else { "Updated" },
@@ -2861,7 +2870,7 @@ fn format_edit_result(icon: &str, parsed: &serde_json::Value) -> String {
     let path = extract_tool_path(parsed);
     let suffix = if parsed
         .get("replaceAll")
-        .and_then(|value| value.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
     {
         " (replace all)"
@@ -2889,7 +2898,7 @@ fn format_edit_result(icon: &str, parsed: &serde_json::Value) -> String {
 fn format_glob_result(icon: &str, parsed: &serde_json::Value) -> String {
     let num_files = parsed
         .get("numFiles")
-        .and_then(|value| value.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
     let filenames = parsed
         .get("filenames")
@@ -2913,11 +2922,11 @@ fn format_glob_result(icon: &str, parsed: &serde_json::Value) -> String {
 fn format_grep_result(icon: &str, parsed: &serde_json::Value) -> String {
     let num_matches = parsed
         .get("numMatches")
-        .and_then(|value| value.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
     let num_files = parsed
         .get("numFiles")
-        .and_then(|value| value.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
     let content = parsed
         .get("content")
@@ -3244,7 +3253,7 @@ mod tests {
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3263,7 +3272,7 @@ mod tests {
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3284,7 +3293,7 @@ mod tests {
                 model: "claude-opus".to_string(),
                 output_format: CliOutputFormat::Json,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3304,7 +3313,7 @@ mod tests {
                 model: "claude-opus-4-6".to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }
@@ -3359,7 +3368,7 @@ mod tests {
                         .map(str::to_string)
                         .collect()
                 ),
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::Prompt,
             }
         );
     }

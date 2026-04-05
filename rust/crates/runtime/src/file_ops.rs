@@ -451,7 +451,7 @@ fn normalize_path(path: &str) -> io::Result<PathBuf> {
     } else {
         std::env::current_dir()?.join(path)
     };
-    candidate.canonicalize()
+    enforce_workspace_boundary(candidate.canonicalize()?)
 }
 
 fn normalize_path_allow_missing(path: &str) -> io::Result<PathBuf> {
@@ -462,7 +462,7 @@ fn normalize_path_allow_missing(path: &str) -> io::Result<PathBuf> {
     };
 
     if let Ok(canonical) = candidate.canonicalize() {
-        return Ok(canonical);
+        return enforce_workspace_boundary(canonical);
     }
 
     if let Some(parent) = candidate.parent() {
@@ -470,15 +470,39 @@ fn normalize_path_allow_missing(path: &str) -> io::Result<PathBuf> {
             .canonicalize()
             .unwrap_or_else(|_| parent.to_path_buf());
         if let Some(name) = candidate.file_name() {
-            return Ok(canonical_parent.join(name));
+            return enforce_workspace_boundary(canonical_parent.join(name));
         }
     }
 
-    Ok(candidate)
+    enforce_workspace_boundary(candidate)
+}
+
+fn workspace_root() -> io::Result<PathBuf> {
+    if let Some(root) = std::env::var_os("CLAWD_WORKSPACE_ROOT") {
+        return PathBuf::from(root).canonicalize();
+    }
+    std::env::current_dir()?.canonicalize()
+}
+
+fn enforce_workspace_boundary(path: PathBuf) -> io::Result<PathBuf> {
+    let workspace_root = workspace_root()?;
+    if path.starts_with(&workspace_root) {
+        Ok(path)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "path {} is outside the workspace root {}",
+                path.display(),
+                workspace_root.display()
+            ),
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::ErrorKind;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{edit_file, glob_search, grep_search, read_file, write_file, GrepSearchInput};
@@ -488,7 +512,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("time should move forward")
             .as_nanos();
-        std::env::temp_dir().join(format!("clawd-native-{name}-{unique}"))
+        std::env::current_dir()
+            .expect("cwd")
+            .join(".tmp-file-ops-tests")
+            .join(format!("clawd-native-{name}-{unique}"))
     }
 
     #[test]
@@ -546,5 +573,13 @@ mod tests {
         })
         .expect("grep should succeed");
         assert!(grep_output.content.unwrap_or_default().contains("hello"));
+    }
+
+    #[test]
+    fn rejects_paths_outside_workspace() {
+        let outside = std::env::temp_dir().join("clawd-outside-workspace.txt");
+        let error = write_file(outside.to_string_lossy().as_ref(), "secret")
+            .expect_err("outside path should be rejected");
+        assert_eq!(error.kind(), ErrorKind::PermissionDenied);
     }
 }

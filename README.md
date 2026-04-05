@@ -135,6 +135,13 @@ Run verification:
 python3 -m unittest discover -s tests -v
 ```
 
+## Security defaults
+
+- The Rust CLI now defaults to `prompt` permission mode instead of unrestricted execution.
+- Project-checked-in `hooks` and `mcpServers` settings are ignored by default to reduce supply-chain risk from untrusted repositories.
+- To explicitly trust repository-provided hook/MCP extensions for a workspace, set `CLAWD_TRUST_PROJECT_EXTENSIONS=1`.
+- File editing, notebook editing, and attachment resolution are limited to the active workspace root.
+
 Run the parity audit against the local ignored archive (when present):
 
 ```bash

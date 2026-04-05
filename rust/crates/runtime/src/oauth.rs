@@ -357,12 +357,27 @@ fn read_credentials_root(path: &PathBuf) -> io::Result<Map<String, Value>> {
 fn write_credentials_root(path: &PathBuf, root: &Map<String, Value>) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
+        set_private_permissions(parent, 0o700)?;
     }
     let rendered = serde_json::to_string_pretty(&Value::Object(root.clone()))
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let temp_path = path.with_extension("json.tmp");
     fs::write(&temp_path, format!("{rendered}\n"))?;
-    fs::rename(temp_path, path)
+    set_private_permissions(&temp_path, 0o600)?;
+    fs::rename(temp_path, path).and_then(|()| set_private_permissions(path, 0o600))
+}
+
+#[cfg(unix)]
+fn set_private_permissions(path: impl AsRef<std::path::Path>, mode: u32) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let permissions = fs::Permissions::from_mode(mode);
+    fs::set_permissions(path, permissions)
+}
+
+#[cfg(not(unix))]
+fn set_private_permissions(_path: impl AsRef<std::path::Path>, _mode: u32) -> io::Result<()> {
+    Ok(())
 }
 
 fn base64url_encode(bytes: &[u8]) -> String {
