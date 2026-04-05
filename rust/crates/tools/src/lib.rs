@@ -352,8 +352,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                 "type": "object",
                 "properties": {
                     "code": { "type": "string" },
-                    "language": { "type": "string" },
-                    "timeout_ms": { "type": "integer", "minimum": 1 }
+                    "language": { "type": "string" }
                 },
                 "required": ["code", "language"],
                 "additionalProperties": false
@@ -658,7 +657,6 @@ struct StructuredOutputInput(BTreeMap<String, Value>);
 struct ReplInput {
     code: String,
     language: String,
-    timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1307,7 +1305,9 @@ fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
     if let Ok(codex_home) = std::env::var("CODEX_HOME") {
         candidates.push(std::path::PathBuf::from(codex_home).join("skills"));
     }
-    candidates.push(std::path::PathBuf::from("/home/bellman/.codex/skills"));
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(std::path::PathBuf::from(home).join(".codex").join("skills"));
+    }
 
     for root in candidates {
         let direct = root.join(requested).join("SKILL.md");
@@ -1582,7 +1582,7 @@ fn allowed_tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
 
 fn agent_permission_policy() -> PermissionPolicy {
     mvp_tool_specs().into_iter().fold(
-        PermissionPolicy::new(PermissionMode::DangerFullAccess),
+        PermissionPolicy::new(PermissionMode::WorkspaceWrite),
         |policy, spec| policy.with_tool_requirement(spec.name, spec.required_permission),
     )
 }
@@ -2376,7 +2376,6 @@ fn execute_repl(input: ReplInput) -> Result<ReplOutput, String> {
     if input.code.trim().is_empty() {
         return Err(String::from("code must not be empty"));
     }
-    let _ = input.timeout_ms;
     let runtime = resolve_repl_runtime(&input.language)?;
     let started = Instant::now();
     let output = Command::new(runtime.program)
@@ -4108,7 +4107,7 @@ mod tests {
     fn repl_executes_python_code() {
         let result = execute_tool(
             "REPL",
-            &json!({"language": "python", "code": "print(1 + 1)", "timeout_ms": 500}),
+            &json!({"language": "python", "code": "print(1 + 1)"}),
         )
         .expect("REPL should succeed");
         let output: serde_json::Value = serde_json::from_str(&result).expect("json");

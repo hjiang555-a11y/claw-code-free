@@ -545,8 +545,18 @@ mod tests {
         crate::test_env_lock()
     }
 
+    fn git_available() -> bool {
+        std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+
     #[test]
     fn discovers_instruction_files_from_repo_root_and_user_claude_dir() {
+        if !git_available() {
+            return;
+        }
         let root = temp_dir();
         let repo = root.join("repo");
         let home = root.join("home");
@@ -619,6 +629,9 @@ mod tests {
 
     #[test]
     fn dedupes_identical_instruction_content_across_scopes() {
+        if !git_available() {
+            return;
+        }
         let root = temp_dir();
         let nested = root.join("apps").join("api");
         fs::create_dir_all(&root).expect("root dir");
@@ -664,6 +677,9 @@ mod tests {
 
     #[test]
     fn discover_with_git_includes_status_snapshot() {
+        if !git_available() {
+            return;
+        }
         let root = temp_dir();
         fs::create_dir_all(&root).expect("root dir");
         std::process::Command::new("git")
@@ -688,6 +704,9 @@ mod tests {
 
     #[test]
     fn discover_with_git_includes_diff_snapshot_for_tracked_changes() {
+        if !git_available() {
+            return;
+        }
         let root = temp_dir();
         fs::create_dir_all(&root).expect("root dir");
         std::process::Command::new("git")

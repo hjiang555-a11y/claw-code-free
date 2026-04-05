@@ -31,6 +31,7 @@ class UsageSummary:
     output_tokens: int = 0
 
     def add_turn(self, prompt: str, output: str) -> 'UsageSummary':
+        # Character counts are a closer lightweight approximation than whitespace-delimited words.
         return UsageSummary(
             input_tokens=self.input_tokens + len(prompt),
             output_tokens=self.output_tokens + len(output),
