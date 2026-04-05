@@ -2447,6 +2447,7 @@ enum ConfigKind {
     String,
 }
 
+#[allow(clippy::too_many_lines)]
 fn supported_config_setting(setting: &str) -> Option<ConfigSettingSpec> {
     Some(match setting {
         "theme" => ConfigSettingSpec {
@@ -2531,7 +2532,14 @@ fn supported_config_setting(setting: &str) -> Option<ConfigSettingSpec> {
             scope: ConfigScope::Settings,
             kind: ConfigKind::String,
             path: &["permissions", "defaultMode"],
-            options: Some(&["default", "plan", "acceptEdits", "prompt", "dontAsk", "auto"]),
+            options: Some(&[
+                "default",
+                "plan",
+                "acceptEdits",
+                "prompt",
+                "dontAsk",
+                "auto",
+            ]),
         },
         "language" => ConfigSettingSpec {
             scope: ConfigScope::Settings,
@@ -3234,6 +3242,19 @@ mod tests {
 
     #[test]
     fn skill_loads_local_skill_prompt() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root = temp_path("skill");
+        let skills_dir = root.join("skills").join("help");
+        fs::create_dir_all(&skills_dir).expect("skill dir");
+        fs::write(
+            skills_dir.join("SKILL.md"),
+            "# Help\n\nGuide on using oh-my-codex plugin\n",
+        )
+        .expect("write skill file");
+        let original_codex_home = std::env::var("CODEX_HOME").ok();
+        std::env::set_var("CODEX_HOME", &root);
         let result = execute_tool(
             "Skill",
             &json!({
@@ -3268,6 +3289,11 @@ mod tests {
             .as_str()
             .expect("path")
             .ends_with("/help/SKILL.md"));
+        match original_codex_home {
+            Some(value) => std::env::set_var("CODEX_HOME", value),
+            None => std::env::remove_var("CODEX_HOME"),
+        }
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -3718,14 +3744,26 @@ mod tests {
 
     #[test]
     fn bash_tool_reports_success_exit_failure_timeout_and_background() {
-        let success = execute_tool("bash", &json!({ "command": "printf 'hello'" }))
-            .expect("bash should succeed");
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let success = execute_tool(
+            "bash",
+            &json!({ "command": "printf 'hello'", "dangerouslyDisableSandbox": true }),
+        )
+        .expect("bash should succeed");
         let success_output: serde_json::Value = serde_json::from_str(&success).expect("json");
         assert_eq!(success_output["stdout"], "hello");
         assert_eq!(success_output["interrupted"], false);
 
-        let failure = execute_tool("bash", &json!({ "command": "printf 'oops' >&2; exit 7" }))
-            .expect("bash failure should still return structured output");
+        let failure = execute_tool(
+            "bash",
+            &json!({
+                "command": "printf 'oops' >&2; exit 7",
+                "dangerouslyDisableSandbox": true
+            }),
+        )
+        .expect("bash failure should still return structured output");
         let failure_output: serde_json::Value = serde_json::from_str(&failure).expect("json");
         assert_eq!(failure_output["returnCodeInterpretation"], "exit_code:7");
         assert!(failure_output["stderr"]
@@ -3733,8 +3771,15 @@ mod tests {
             .expect("stderr")
             .contains("oops"));
 
-        let timeout = execute_tool("bash", &json!({ "command": "sleep 1", "timeout": 10 }))
-            .expect("bash timeout should return output");
+        let timeout = execute_tool(
+            "bash",
+            &json!({
+                "command": "sleep 1",
+                "timeout": 10,
+                "dangerouslyDisableSandbox": true
+            }),
+        )
+        .expect("bash timeout should return output");
         let timeout_output: serde_json::Value = serde_json::from_str(&timeout).expect("json");
         assert_eq!(timeout_output["interrupted"], true);
         assert_eq!(timeout_output["returnCodeInterpretation"], "timeout");
@@ -3745,7 +3790,11 @@ mod tests {
 
         let background = execute_tool(
             "bash",
-            &json!({ "command": "sleep 1", "run_in_background": true }),
+            &json!({
+                "command": "sleep 1",
+                "run_in_background": true,
+                "dangerouslyDisableSandbox": true
+            }),
         )
         .expect("bash background should succeed");
         let background_output: serde_json::Value = serde_json::from_str(&background).expect("json");

@@ -420,7 +420,7 @@ fn read_optional_json_object(
 
     let parsed = match JsonValue::parse(&contents) {
         Ok(parsed) => parsed,
-        Err(error) if is_legacy_config => return Ok(None),
+        Err(_error) if is_legacy_config => return Ok(None),
         Err(error) => return Err(ConfigError::Parse(format!("{}: {error}", path.display()))),
     };
     let Some(object) = parsed.as_object() else {
@@ -795,8 +795,8 @@ fn deep_merge_objects(
 #[cfg(test)]
 mod tests {
     use super::{
-        ConfigLoader, ConfigSource, McpServerConfig, McpTransport, ResolvedPermissionMode,
-        CLAUDE_CODE_SETTINGS_SCHEMA_NAME,
+        parse_permission_mode_label, ConfigLoader, ConfigSource, McpServerConfig, McpTransport,
+        ResolvedPermissionMode, CLAUDE_CODE_SETTINGS_SCHEMA_NAME,
     };
     use crate::json::JsonValue;
     use crate::sandbox::FilesystemIsolationMode;
