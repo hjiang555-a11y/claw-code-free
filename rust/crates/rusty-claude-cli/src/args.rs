@@ -12,7 +12,7 @@ pub struct Cli {
     #[arg(long, default_value = "claude-opus-4-6")]
     pub model: String,
 
-    #[arg(long, value_enum, default_value_t = PermissionMode::DangerFullAccess)]
+    #[arg(long, value_enum, default_value_t = PermissionMode::Prompt)]
     pub permission_mode: PermissionMode,
 
     #[arg(long)]
@@ -40,11 +40,12 @@ pub enum Command {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
-pub enum PermissionMode {
-    ReadOnly,
-    WorkspaceWrite,
-    DangerFullAccess,
-}
+    pub enum PermissionMode {
+        ReadOnly,
+        WorkspaceWrite,
+        Prompt,
+        DangerFullAccess,
+    }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -101,8 +102,8 @@ mod tests {
     }
 
     #[test]
-    fn defaults_to_danger_full_access_permission_mode() {
+    fn defaults_to_prompt_permission_mode() {
         let cli = Cli::parse_from(["rusty-claude-cli"]);
-        assert_eq!(cli.permission_mode, PermissionMode::DangerFullAccess);
+        assert_eq!(cli.permission_mode, PermissionMode::Prompt);
     }
 }

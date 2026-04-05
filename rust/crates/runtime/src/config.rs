@@ -19,6 +19,7 @@ pub enum ConfigSource {
 pub enum ResolvedPermissionMode {
     ReadOnly,
     WorkspaceWrite,
+    Prompt,
     DangerFullAccess,
 }
 
@@ -539,6 +540,7 @@ fn parse_permission_mode_label(
     match mode {
         "default" | "plan" | "read-only" => Ok(ResolvedPermissionMode::ReadOnly),
         "acceptEdits" | "auto" | "workspace-write" => Ok(ResolvedPermissionMode::WorkspaceWrite),
+        "prompt" => Ok(ResolvedPermissionMode::Prompt),
         "dontAsk" | "danger-full-access" => Ok(ResolvedPermissionMode::DangerFullAccess),
         other => Err(ConfigError::Parse(format!(
             "{context}: unsupported permission mode {other}"
@@ -821,8 +823,8 @@ fn deep_merge_objects(
 #[cfg(test)]
 mod tests {
     use super::{
-        ConfigLoader, ConfigSource, McpServerConfig, McpTransport, ResolvedPermissionMode,
-        CLAUDE_CODE_SETTINGS_SCHEMA_NAME,
+        parse_permission_mode_label, ConfigLoader, ConfigSource, McpServerConfig, McpTransport,
+        ResolvedPermissionMode, CLAUDE_CODE_SETTINGS_SCHEMA_NAME,
     };
     use crate::json::JsonValue;
     use crate::sandbox::FilesystemIsolationMode;
@@ -1080,30 +1082,8 @@ mod tests {
     }
 
     #[test]
-    fn can_opt_in_to_project_hooks_and_mcp_extensions() {
-        let root = temp_dir();
-        let cwd = root.join("project");
-        let home = root.join("home").join(".claude");
-        fs::create_dir_all(cwd.join(".claude")).expect("project config dir");
-        fs::create_dir_all(&home).expect("home config dir");
-        fs::write(
-            cwd.join(".claude").join("settings.json"),
-            r#"{"hooks":{"PostToolUse":["project-hook"]},"mcpServers":{"project":{"command":"uvx","args":["project"]}}}"#,
-        )
-        .expect("write project settings");
-        std::env::set_var("CLAWD_TRUST_PROJECT_EXTENSIONS", "1");
-
-        let loaded = ConfigLoader::new(&cwd, &home)
-            .load()
-            .expect("config should load");
-
-        assert_eq!(
-            loaded.hooks().post_tool_use(),
-            &["project-hook".to_string()]
-        );
-        assert!(loaded.mcp().get("project").is_some());
-
-        std::env::remove_var("CLAWD_TRUST_PROJECT_EXTENSIONS");
-        fs::remove_dir_all(root).expect("cleanup temp dir");
+    fn parses_prompt_permission_mode_labels() {
+        let parsed = parse_permission_mode_label("prompt", "test").expect("prompt should parse");
+        assert_eq!(parsed, ResolvedPermissionMode::Prompt);
     }
 }

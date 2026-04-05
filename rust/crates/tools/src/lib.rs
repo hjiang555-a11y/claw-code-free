@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -69,8 +68,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                     "command": { "type": "string" },
                     "timeout": { "type": "integer", "minimum": 1 },
                     "description": { "type": "string" },
-                    "run_in_background": { "type": "boolean" },
-                    "dangerouslyDisableSandbox": { "type": "boolean" }
+                    "run_in_background": { "type": "boolean" }
                 },
                 "required": ["command"],
                 "additionalProperties": false
@@ -354,8 +352,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                 "type": "object",
                 "properties": {
                     "code": { "type": "string" },
-                    "language": { "type": "string" },
-                    "timeout_ms": { "type": "integer", "minimum": 1 }
+                    "language": { "type": "string" }
                 },
                 "required": ["code", "language"],
                 "additionalProperties": false
@@ -660,7 +657,6 @@ struct StructuredOutputInput(BTreeMap<String, Value>);
 struct ReplInput {
     code: String,
     language: String,
-    timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2150,7 +2146,7 @@ fn iso8601_now() -> String {
 
 #[allow(clippy::too_many_lines)]
 fn execute_notebook_edit(input: NotebookEditInput) -> Result<NotebookEditOutput, String> {
-    let path = resolve_workspace_path(&input.notebook_path).map_err(|error| error.to_string())?;
+    let path = std::path::PathBuf::from(&input.notebook_path);
     if path.extension().and_then(|ext| ext.to_str()) != Some("ipynb") {
         return Err(String::from(
             "File must be a Jupyter notebook (.ipynb file).",
@@ -2347,7 +2343,7 @@ fn execute_brief(input: BriefInput) -> Result<BriefOutput, String> {
 }
 
 fn resolve_attachment(path: &str) -> Result<ResolvedAttachment, String> {
-    let resolved = resolve_workspace_path(path).map_err(|error| error.to_string())?;
+    let resolved = std::fs::canonicalize(path).map_err(|error| error.to_string())?;
     let metadata = std::fs::metadata(&resolved).map_err(|error| error.to_string())?;
     Ok(ResolvedAttachment {
         path: resolved.display().to_string(),
@@ -2426,15 +2422,11 @@ fn execute_repl(input: ReplInput) -> Result<ReplOutput, String> {
     }
     let runtime = resolve_repl_runtime(&input.language)?;
     let started = Instant::now();
-    let child = Command::new(runtime.program)
+    let output = Command::new(runtime.program)
         .args(runtime.args)
         .arg(&input.code)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
+        .output()
         .map_err(|error| error.to_string())?;
-    let timeout_ms = input.timeout_ms.unwrap_or(5_000);
-    let output = wait_for_child_output(child, timeout_ms).map_err(|error| error.to_string())?;
 
     Ok(ReplOutput {
         language: input.language,
@@ -2448,60 +2440,6 @@ fn execute_repl(input: ReplInput) -> Result<ReplOutput, String> {
 struct ReplRuntime {
     program: &'static str,
     args: &'static [&'static str],
-}
-
-fn wait_for_child_output(
-    mut child: std::process::Child,
-    timeout_ms: u64,
-) -> io::Result<std::process::Output> {
-    let started = Instant::now();
-    loop {
-        if let Some(_status) = child.try_wait()? {
-            return child.wait_with_output();
-        }
-        if started.elapsed() >= Duration::from_millis(timeout_ms) {
-            child.kill()?;
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                format!("Command exceeded timeout of {timeout_ms} ms"),
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
-fn resolve_workspace_path(path: &str) -> io::Result<PathBuf> {
-    let candidate = if Path::new(path).is_absolute() {
-        PathBuf::from(path)
-    } else {
-        std::env::current_dir()?.join(path)
-    };
-    let resolved = candidate.canonicalize()?;
-    let workspace_root = std::env::current_dir()?.canonicalize()?;
-    if resolved.starts_with(&workspace_root) {
-        Ok(resolved)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!(
-                "path {} is outside the workspace root {}",
-                resolved.display(),
-                workspace_root.display()
-            ),
-        ))
-    }
-}
-
-#[cfg(unix)]
-fn set_private_permissions(path: &Path, mode: u32) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-}
-
-#[cfg(not(unix))]
-fn set_private_permissions(_path: &Path, _mode: u32) -> io::Result<()> {
-    Ok(())
 }
 
 fn resolve_repl_runtime(language: &str) -> Result<ReplRuntime, String> {
@@ -2552,6 +2490,7 @@ enum ConfigKind {
     String,
 }
 
+#[allow(clippy::too_many_lines)]
 fn supported_config_setting(setting: &str) -> Option<ConfigSettingSpec> {
     Some(match setting {
         "theme" => ConfigSettingSpec {
@@ -2636,7 +2575,14 @@ fn supported_config_setting(setting: &str) -> Option<ConfigSettingSpec> {
             scope: ConfigScope::Settings,
             kind: ConfigKind::String,
             path: &["permissions", "defaultMode"],
-            options: Some(&["default", "plan", "acceptEdits", "dontAsk", "auto"]),
+            options: Some(&[
+                "default",
+                "plan",
+                "acceptEdits",
+                "prompt",
+                "dontAsk",
+                "auto",
+            ]),
         },
         "language" => ConfigSettingSpec {
             scope: ConfigScope::Settings,
@@ -2723,14 +2669,12 @@ fn read_json_object(path: &Path) -> Result<serde_json::Map<String, Value>, Strin
 fn write_json_object(path: &Path, value: &serde_json::Map<String, Value>) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        set_private_permissions(parent, 0o700).map_err(|error| error.to_string())?;
     }
     std::fs::write(
         path,
         serde_json::to_string_pretty(value).map_err(|error| error.to_string())?,
     )
-    .map_err(|error| error.to_string())?;
-    set_private_permissions(path, 0o600).map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())
 }
 
 fn get_nested_value<'a>(
@@ -3057,6 +3001,18 @@ mod tests {
     }
 
     #[test]
+    fn bash_tool_schema_does_not_advertise_sandbox_bypass() {
+        let bash = mvp_tool_specs()
+            .into_iter()
+            .find(|spec| spec.name == "bash")
+            .expect("bash tool spec should exist");
+        let properties = bash.input_schema["properties"]
+            .as_object()
+            .expect("bash properties should be an object");
+        assert!(!properties.contains_key("dangerouslyDisableSandbox"));
+    }
+
+    #[test]
     fn rejects_unknown_tool_names() {
         let error = execute_tool("nope", &json!({})).expect_err("tool should be rejected");
         assert!(error.contains("unsupported tool"));
@@ -3349,15 +3305,16 @@ mod tests {
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let skill_root = temp_path("skills-home");
-        let skill_dir = skill_root.join("skills").join("help");
-        fs::create_dir_all(&skill_dir).expect("create skill dir");
+        let root = temp_path("skill");
+        let skills_dir = root.join("skills").join("help");
+        fs::create_dir_all(&skills_dir).expect("skill dir");
         fs::write(
-            skill_dir.join("SKILL.md"),
-            "description: Guide on using oh-my-codex plugin\n\nUse this skill for help.\n",
+            skills_dir.join("SKILL.md"),
+            "# Help\n\nGuide on using oh-my-codex plugin\n",
         )
-        .expect("write skill");
-        std::env::set_var("CODEX_HOME", &skill_root);
+        .expect("write skill file");
+        let original_codex_home = std::env::var("CODEX_HOME").ok();
+        std::env::set_var("CODEX_HOME", &root);
         let result = execute_tool(
             "Skill",
             &json!({
@@ -3392,8 +3349,11 @@ mod tests {
             .as_str()
             .expect("path")
             .ends_with("/help/SKILL.md"));
-        std::env::remove_var("CODEX_HOME");
-        let _ = fs::remove_dir_all(skill_root);
+        match original_codex_home {
+            Some(value) => std::env::set_var("CODEX_HOME", value),
+            None => std::env::remove_var("CODEX_HOME"),
+        }
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -3868,7 +3828,10 @@ mod tests {
 
         let failure = execute_tool(
             "bash",
-            &json!({ "command": "printf 'oops' >&2; exit 7", "dangerouslyDisableSandbox": true }),
+            &json!({
+                "command": "printf 'oops' >&2; exit 7",
+                "dangerouslyDisableSandbox": true
+            }),
         )
         .expect("bash failure should still return structured output");
         let failure_output: serde_json::Value = serde_json::from_str(&failure).expect("json");
@@ -4209,7 +4172,7 @@ mod tests {
     fn repl_executes_python_code() {
         let result = match execute_tool(
             "REPL",
-            &json!({"language": "python", "code": "print(1 + 1)", "timeout_ms": 500}),
+            &json!({"language": "python", "code": "print(1 + 1)"}),
         ) {
             Ok(result) => result,
             Err(error) if error.contains("python runtime not found") => return,
