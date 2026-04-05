@@ -80,6 +80,31 @@ I originally studied the exposed codebase to understand its harness, tool wiring
 
 This repository now focuses on Python porting work instead.
 
+## Requirements
+
+| Requirement | Minimum | Notes |
+|---|---|---|
+| Rust | stable (1.70+) | Install via `rustup` — see [rustup.rs](https://rustup.rs) |
+| Python | 3.11+ | No third-party packages required |
+| git | any recent | needed for workspace detection |
+
+## Install
+
+```bash
+# 1. Clone
+git clone https://github.com/hjiang555-a11y/claw-code-free.git
+cd claw-code-free
+
+# 2. Install Rust stable toolchain (skip if already installed)
+rustup toolchain install stable
+rustup component add rustfmt clippy
+
+# 3. Copy environment variable template and fill in your values
+cp .env.example .env
+```
+
+See [`.env.example`](.env.example) for the full list of supported variables and [docs/deployment-prep.md](docs/deployment-prep.md) for a step-by-step deployment guide.
+
 ## Repository Layout
 
 ```text
@@ -114,6 +139,28 @@ The Python command/tool execution shims are metadata-only stubs: they report mir
 
 ## Quickstart
 
+### Build the Rust CLI
+
+```bash
+cd rust && cargo build --release --bin claw
+# binary: rust/target/release/claw
+```
+
+Verify it runs:
+
+```bash
+./rust/target/release/claw --help
+```
+
+Run an interactive session (requires `ANTHROPIC_API_KEY` or prior `claw login`):
+
+```bash
+export ANTHROPIC_API_KEY=your-key-here
+./rust/target/release/claw
+```
+
+### Python workspace
+
 Render the Python porting summary:
 
 ```bash
@@ -137,6 +184,25 @@ Run verification:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+## Run / Build / Test reference
+
+A `Makefile` is provided for convenience:
+
+| Command | What it does |
+|---|---|
+| `make install` | Install Rust toolchain + check Python |
+| `make build` | Build the release binary (`rust/target/release/claw`) |
+| `make build-dev` | Build a debug binary (faster, larger) |
+| `make test` | Run Rust + Python tests |
+| `make lint` | Run Clippy and format-check |
+| `make fmt` | Auto-format Rust code |
+| `make verify` | Full CI gate: lint + all tests |
+| `make health` | Minimum verification of both components |
+| `make run` | Start the interactive CLI |
+| `make login` | OAuth login flow |
+
+Run `make` (or `make help`) to see the full target list.
 
 ## Security defaults
 
@@ -180,6 +246,34 @@ The restructuring and documentation work on this repository was AI-assisted and 
 ![OmX workflow screenshot 2](assets/omx/omx-readme-review-2.png)
 
 *Split-pane review and verification flow during the final README wording pass.*
+
+## Troubleshooting
+
+### `cargo: command not found`
+Rust is not on `PATH`. Run `source "$HOME/.cargo/env"` or add `~/.cargo/bin` to your shell profile.
+
+### Build fails with linker errors (Ubuntu / WSL)
+Install the C toolchain: `sudo apt-get install -y build-essential`
+
+### `claw` binary won't execute on WSL
+Run from a Linux filesystem path (`~/`, `/tmp/`), not `/mnt/c/…`. Windows-mounted filesystems can be mounted `noexec`.
+
+### `ANTHROPIC_API_KEY is not set`
+Export the variable before running, or use `claw login` for the OAuth flow:
+```bash
+export ANTHROPIC_API_KEY=your-key-here
+```
+
+### Checking for missing environment variables
+```bash
+python3 -m src.main setup-report
+```
+
+### Where are logs?
+- **Rust CLI** — errors go to `stderr`. Redirect with `2>claw.log`.
+- **Session transcripts** — stored in `.port_sessions/` (Python) and `~/.claude/sessions/` (Rust).
+
+For a full troubleshooting guide and WSL / Ubuntu deployment steps, see [docs/deployment-prep.md](docs/deployment-prep.md).
 
 ## Community
 
